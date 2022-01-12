@@ -488,6 +488,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "bevy_queue_delete"
+version = "0.1.0"
+source = "git+https://github.com/Semihazah/bevy_queue_delete.git#9c8909b750a94718f59d69f060affa812f1c2625"
+dependencies = [
+ "bevy",
+]
+
+[[package]]
 name = "bevy_reflect"
 version = "0.6.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -655,6 +663,7 @@ name = "bevy_type_sync"
 version = "0.1.0"
 dependencies = [
  "bevy",
+ "bevy_queue_delete",
 ]
 
 [[package]]

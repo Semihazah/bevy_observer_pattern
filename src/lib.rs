@@ -2,24 +2,28 @@ use std::marker::PhantomData;
 
 use bevy::{
     app::{App, CoreStage},
-    
     asset::AssetServer,
     ecs::{
         component::Component,
+        entity::Entity,
         entity::{EntityMap, MapEntities, MapEntitiesError},
+        query::{Changed, Or},
         reflect::{ReflectComponent, ReflectMapEntities},
         schedule::ParallelSystemDescriptorCoercion,
-        system::{Command, EntityCommands, Res, Query},
+        system::{Command, EntityCommands, Query, Res},
         world::{EntityMut, FromWorld, World},
-        entity::Entity,
-        query::{Changed, Or},
-    }, reflect::{FromReflect, Reflect},
+    },
+    reflect::{FromReflect, Reflect},
 };
 
-#[derive(Reflect, FromReflect, Clone, Component)]
+#[derive(Reflect, FromReflect, Clone, Component, Default)]
 #[reflect(Component)]
-pub struct SyncData<T: Send + Sync + 'static, G: GiveData<T>, R: RecieveData<T>> {
-    pub source: Entity,
+pub struct SyncData<
+    T: Default + Send + Sync + 'static,
+    G: GiveData<T> + Default,
+    R: RecieveData<T> + Default,
+> {
+    pub sources: Vec<Entity>,
 
     #[reflect(ignore)]
     phantom_data: PhantomData<T>,
@@ -31,10 +35,12 @@ pub struct SyncData<T: Send + Sync + 'static, G: GiveData<T>, R: RecieveData<T>>
     phantom_reciever: PhantomData<R>,
 }
 
-impl<T: Send + Sync + 'static, G: GiveData<T>, R: RecieveData<T>> SyncData<T, G, R> {
-    pub fn new(source: Entity) -> Self {
+impl<T: Default + Send + Sync + 'static, G: GiveData<T> + Default, R: RecieveData<T> + Default>
+    SyncData<T, G, R>
+{
+    pub fn new(sources: Vec<Entity>) -> Self {
         SyncData {
-            source,
+            sources,
             phantom_data: PhantomData,
             phantom_giver: PhantomData,
             phantom_reciever: PhantomData,
@@ -42,22 +48,13 @@ impl<T: Send + Sync + 'static, G: GiveData<T>, R: RecieveData<T>> SyncData<T, G,
     }
 }
 
-impl<T: Send + Sync + 'static, G: GiveData<T>, R: RecieveData<T>> Default for SyncData<T, G, R> {
-    fn default() -> Self {
-        SyncData {
-            source: Entity::from_raw(u32::MAX),
-            phantom_data: PhantomData,
-            phantom_giver: PhantomData,
-            phantom_reciever: PhantomData,
-        }
-    }
-}
-
-impl<T: Send + Sync + 'static, G: GiveData<T>, R: RecieveData<T>> MapEntities
-    for SyncData<T, G, R>
+impl<T: Default + Send + Sync + 'static, G: GiveData<T> + Default, R: RecieveData<T> + Default>
+    MapEntities for SyncData<T, G, R>
 {
     fn map_entities(&mut self, m: &EntityMap) -> Result<(), MapEntitiesError> {
-        self.source = m.get(self.source).unwrap();
+        for source in self.sources.iter_mut() {
+            *source = m.get(*source).unwrap();
+        }
 
         Ok(())
     }
@@ -123,55 +120,70 @@ impl<T: Send + Sync + 'static, G: GiveData<T>, R: RecieveData<T>> MapEntities
     }
 }
 
-pub struct SyncToDataCommand<T: Send + Sync + 'static, G: GiveData<T>, R: RecieveData<T>> {
+pub struct SyncToDataCommand<
+    T: Send + Sync + 'static,
+    G: GiveData<T> + Default,
+    R: RecieveData<T> + Default,
+> {
     pub entity: Entity,
-    pub source: Entity,
+    pub sources: Vec<Entity>,
     phantom_data: PhantomData<T>,
     phantom_giver: PhantomData<G>,
     phantom_reciever: PhantomData<R>,
 }
 
-impl<T: Send + Sync + 'static, G: GiveData<T>, R: RecieveData<T>> Command
-    for SyncToDataCommand<T, G, R>
+impl<T: Default + Send + Sync + 'static, G: GiveData<T> + Default, R: RecieveData<T> + Default>
+    Command for SyncToDataCommand<T, G, R>
 {
     fn write(self, world: &mut World) {
         world
-                .entity_mut(self.entity)
-                .insert(SyncData::<T, G, R>::new(self.source));
-            match world.entity(self.source).contains::<GiveList<T, G, R>>() {
+            .entity_mut(self.entity)
+            .insert(SyncData::<T, G, R>::new(self.sources.clone()));
+
+        for source in self.sources {
+            match world.entity(source).contains::<GiveList<T, G, R>>() {
                 false => {
                     world
-                        .entity_mut(self.source)
+                        .entity_mut(source)
                         .insert(GiveList::<T, G, R>::new(vec![self.entity]));
                 }
                 true => {
                     let mut g = world
-                        .entity_mut(self.source)
+                        .entity_mut(source)
                         .get_mut::<GiveList<T, G, R>>()
                         .unwrap();
                     g.recievers.push(self.entity);
                 }
             }
+        }
     }
 }
 
 pub trait SyncToDataCommandExt {
-    fn sync_to_data<T: Send + Sync + 'static, G: GiveData<T>, R: RecieveData<T>>(
+    fn sync_to_data<
+        T: Default + Send + Sync + 'static,
+        G: GiveData<T> + Default,
+        R: RecieveData<T> + Default,
+    >(
         &mut self,
-        source: Entity,
+        source: Vec<Entity>,
     ) -> &mut Self;
 }
 
 impl<'w, 's, 'a> SyncToDataCommandExt for EntityCommands<'w, 's, 'a> {
-    fn sync_to_data<T: Send + Sync + 'static, G: GiveData<T>, R: RecieveData<T>>(
+    fn sync_to_data<
+        T: Default + Send + Sync + 'static,
+        G: GiveData<T> + Default,
+        R: RecieveData<T> + Default,
+    >(
         &mut self,
-        source: Entity,
+        sources: Vec<Entity>,
     ) -> &mut Self {
         let id = self.id();
 
         self.commands().add(SyncToDataCommand::<T, G, R> {
             entity: id,
-            source,
+            sources,
             phantom_data: PhantomData,
             phantom_giver: PhantomData,
             phantom_reciever: PhantomData,
@@ -182,32 +194,25 @@ impl<'w, 's, 'a> SyncToDataCommandExt for EntityCommands<'w, 's, 'a> {
 }
 
 impl<'w> SyncToDataCommandExt for EntityMut<'w> {
-    fn sync_to_data<T: Send + Sync + 'static, G: GiveData<T>, R: RecieveData<T>>(
+    fn sync_to_data<
+        T: Default + Send + Sync + 'static,
+        G: GiveData<T> + Default,
+        R: RecieveData<T> + Default,
+    >(
         &mut self,
-        source: Entity,
+        sources: Vec<Entity>,
     ) -> &mut Self {
         let id = self.id();
         unsafe {
-            self.world_mut()
-                .entity_mut(id)
-                .insert(SyncData::<T, G, R>::new(source));
-            self.update_location();
-        }
-        match self.world().entity(source).contains::<GiveList<T, G, R>>() {
-            false => unsafe {
-                self.world_mut()
-                    .entity_mut(source)
-                    .insert(GiveList::<T, G, R>::new(vec![id]));
-                self.update_location();
-            },
-            true => unsafe {
-                let mut g = self
-                    .world_mut()
-                    .entity_mut(source)
-                    .get_mut::<GiveList<T, G, R>>()
-                    .unwrap();
-                g.recievers.push(id);
-            },
+            let world = self.world_mut();
+            SyncToDataCommand::<T, G, R> {
+                entity: id,
+                sources,
+                phantom_data: PhantomData,
+                phantom_giver: PhantomData,
+                phantom_reciever: PhantomData,
+            }
+            .write(world)
         }
 
         self
@@ -241,33 +246,39 @@ pub fn sync_data<T: Send + Sync + 'static, G: GiveData<T>, R: RecieveData<T>>(
     }
 }
 
-pub fn sync_init_data<T: Send + Sync + 'static, G: GiveData<T>, R: RecieveData<T>>(
+pub fn sync_init_data<
+    T: Default + Send + Sync + 'static,
+    G: GiveData<T> + Default,
+    R: RecieveData<T> + Default,
+>(
     asset_server: Res<AssetServer>,
     mut recieve_query: Query<(&mut R, &SyncData<T, G, R>), Changed<SyncData<T, G, R>>>,
     give_query: Query<&G>,
 ) {
     for (mut reciever, sync) in recieve_query.iter_mut() {
         //println!("Syncing init data for types {}, {}, {}", type_name::<T>(), type_name::<G>(), type_name::<R>());
-        if let Ok(giver) = give_query.get(sync.source) {
-            //println!("Found giver!");
-            reciever.recieve_data(giver.give_data(), giver as &dyn Reflect, &asset_server);
+        for source in sync.sources.iter() {
+            if let Ok(giver) = give_query.get(*source) {
+                //println!("Found giver!");
+                reciever.recieve_data(giver.give_data(), giver as &dyn Reflect, &asset_server);
+            }
         }
     }
 }
 pub trait SyncBuilder {
     fn register_data_sync<T, G, R>(&mut self) -> &mut Self
     where
-        T: Send + Sync + 'static,
-        G: GiveData<T>,
-        R: RecieveData<T>;
+        T: Default + Send + Sync + 'static,
+        G: GiveData<T> + Default,
+        R: RecieveData<T> + Default;
 }
 
 impl SyncBuilder for App {
     fn register_data_sync<T, G, R>(&mut self) -> &mut Self
     where
-        T: Send + Sync + 'static,
-        G: GiveData<T>,
-        R: RecieveData<T>,
+        T: Default + Send + Sync + 'static,
+        G: GiveData<T> + Default,
+        R: RecieveData<T> + Default,
     {
         self.register_type::<SyncData<T, G, R>>()
             .register_type::<GiveList<T, G, R>>()

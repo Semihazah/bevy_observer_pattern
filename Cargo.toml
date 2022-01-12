@@ -7,3 +7,4 @@ edition = "2021"
 
 [dependencies]
 bevy = { version = "0.6.0"}
+bevy_queue_delete = { git = "https://github.com/Semihazah/bevy_queue_delete.git" }
