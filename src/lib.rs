@@ -66,6 +66,7 @@ pub trait RecieveData<T: Send + Sync + 'static>: Component {
         data: I,
         reflect_data: &dyn Reflect,
         asset_server: &Res<AssetServer>,
+        sender: Entity,
     );
 }
 
@@ -140,9 +141,9 @@ impl<T: Default + Send + Sync + 'static, G: GiveData<T> + Default, R: RecieveDat
             Some(mut sync_list) => sync_list.sources.append(&mut self.sources.clone()),
             None => {
                 world
-                .entity_mut(self.entity)
-                .insert(SyncData::<T, G, R>::new(self.sources.clone()));
-            },
+                    .entity_mut(self.entity)
+                    .insert(SyncData::<T, G, R>::new(self.sources.clone()));
+            }
         }
 
         for source in self.sources {
@@ -227,18 +228,23 @@ impl<'w> SyncToDataCommandExt for EntityMut<'w> {
 pub fn sync_data<T: Send + Sync + 'static, G: GiveData<T>, R: RecieveData<T>>(
     asset_server: Res<AssetServer>,
     mut give_query: Query<
-        (&G, &mut GiveList<T, G, R>),
+        (Entity, &G, &mut GiveList<T, G, R>),
         Or<(Changed<G>, Changed<GiveList<T, G, R>>)>,
     >,
     mut recieve_query: Query<&mut R>,
 ) {
-    for (data, mut list) in give_query.iter_mut() {
+    for (sender, data, mut list) in give_query.iter_mut() {
         let mut remove_list = Vec::new();
         for recieve_entity in list.recievers.iter() {
             //println!("Syncing changed data for types {}, {}, {}, reciever = {:?}", type_name::<T>(), type_name::<G>(), type_name::<R>(), recieve_entity);
             if let Ok(mut reciever) = recieve_query.get_mut(*recieve_entity) {
                 //println!("Sync data success!");
-                reciever.recieve_data(data.give_data(), data as &dyn Reflect, &asset_server);
+                reciever.recieve_data(
+                    data.give_data(),
+                    data as &dyn Reflect,
+                    &asset_server,
+                    sender,
+                );
             } else {
                 //println!("Sync data failed! Could not find reciever!");
 
@@ -265,7 +271,12 @@ pub fn sync_init_data<
         for source in sync.sources.iter() {
             if let Ok(giver) = give_query.get(*source) {
                 //println!("Found giver!");
-                reciever.recieve_data(giver.give_data(), giver as &dyn Reflect, &asset_server);
+                reciever.recieve_data(
+                    giver.give_data(),
+                    giver as &dyn Reflect,
+                    &asset_server,
+                    *source,
+                );
             }
         }
     }
