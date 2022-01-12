@@ -136,9 +136,14 @@ impl<T: Default + Send + Sync + 'static, G: GiveData<T> + Default, R: RecieveDat
     Command for SyncToDataCommand<T, G, R>
 {
     fn write(self, world: &mut World) {
-        world
-            .entity_mut(self.entity)
-            .insert(SyncData::<T, G, R>::new(self.sources.clone()));
+        match world.entity_mut(self.entity).get_mut::<SyncData<T, G, R>>() {
+            Some(mut sync_list) => sync_list.sources.append(&mut self.sources.clone()),
+            None => {
+                world
+                .entity_mut(self.entity)
+                .insert(SyncData::<T, G, R>::new(self.sources.clone()));
+            },
+        }
 
         for source in self.sources {
             match world.entity(source).contains::<GiveList<T, G, R>>() {
