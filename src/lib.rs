@@ -21,7 +21,7 @@ use bevy::{
 pub struct SyncData<
     T: Default + Send + Sync + 'static,
     G: GiveData<T> + Default,
-    R: RecieveData<T> + Default,
+    R: ReceiveData<T> + Default,
 > {
     pub sources: Vec<Entity>,
 
@@ -35,7 +35,7 @@ pub struct SyncData<
     phantom_reciever: PhantomData<R>,
 }
 
-impl<T: Default + Send + Sync + 'static, G: GiveData<T> + Default, R: RecieveData<T> + Default>
+impl<T: Default + Send + Sync + 'static, G: GiveData<T> + Default, R: ReceiveData<T> + Default>
     SyncData<T, G, R>
 {
     pub fn new(sources: Vec<Entity>) -> Self {
@@ -48,7 +48,7 @@ impl<T: Default + Send + Sync + 'static, G: GiveData<T> + Default, R: RecieveDat
     }
 }
 
-impl<T: Default + Send + Sync + 'static, G: GiveData<T> + Default, R: RecieveData<T> + Default>
+impl<T: Default + Send + Sync + 'static, G: GiveData<T> + Default, R: ReceiveData<T> + Default>
     MapEntities for SyncData<T, G, R>
 {
     fn map_entities(&mut self, m: &EntityMap) -> Result<(), MapEntitiesError> {
@@ -60,7 +60,7 @@ impl<T: Default + Send + Sync + 'static, G: GiveData<T> + Default, R: RecieveDat
     }
 }
 
-pub trait RecieveData<T: Send + Sync + 'static>: Component {
+pub trait ReceiveData<T: Send + Sync + 'static>: Component {
     fn recieve_data<I: Into<T>>(
         &mut self,
         data: I,
@@ -76,7 +76,7 @@ pub trait GiveData<T: Send + Sync + 'static>: Component + FromWorld + Reflect {
 
 #[derive(Reflect, FromReflect, Clone, Component)]
 #[reflect(Component, MapEntities)]
-pub struct GiveList<T: Send + Sync + 'static, G: GiveData<T>, R: RecieveData<T>> {
+pub struct GiveList<T: Send + Sync + 'static, G: GiveData<T>, R: ReceiveData<T>> {
     pub recievers: Vec<Entity>,
 
     #[reflect(ignore)]
@@ -89,7 +89,7 @@ pub struct GiveList<T: Send + Sync + 'static, G: GiveData<T>, R: RecieveData<T>>
     phantom_reciever: PhantomData<R>,
 }
 
-impl<T: Send + Sync + 'static, G: GiveData<T>, R: RecieveData<T>> GiveList<T, G, R> {
+impl<T: Send + Sync + 'static, G: GiveData<T>, R: ReceiveData<T>> GiveList<T, G, R> {
     pub fn new(list: Vec<Entity>) -> Self {
         GiveList {
             recievers: list,
@@ -99,7 +99,7 @@ impl<T: Send + Sync + 'static, G: GiveData<T>, R: RecieveData<T>> GiveList<T, G,
         }
     }
 }
-impl<T: Send + Sync + 'static, G: GiveData<T>, R: RecieveData<T>> Default for GiveList<T, G, R> {
+impl<T: Send + Sync + 'static, G: GiveData<T>, R: ReceiveData<T>> Default for GiveList<T, G, R> {
     fn default() -> Self {
         GiveList {
             recievers: Vec::default(),
@@ -109,7 +109,7 @@ impl<T: Send + Sync + 'static, G: GiveData<T>, R: RecieveData<T>> Default for Gi
         }
     }
 }
-impl<T: Send + Sync + 'static, G: GiveData<T>, R: RecieveData<T>> MapEntities
+impl<T: Send + Sync + 'static, G: GiveData<T>, R: ReceiveData<T>> MapEntities
     for GiveList<T, G, R>
 {
     fn map_entities(&mut self, m: &EntityMap) -> Result<(), MapEntitiesError> {
@@ -124,7 +124,7 @@ impl<T: Send + Sync + 'static, G: GiveData<T>, R: RecieveData<T>> MapEntities
 pub struct SyncToDataCommand<
     T: Send + Sync + 'static,
     G: GiveData<T> + Default,
-    R: RecieveData<T> + Default,
+    R: ReceiveData<T> + Default,
 > {
     pub entity: Entity,
     pub sources: Vec<Entity>,
@@ -133,7 +133,7 @@ pub struct SyncToDataCommand<
     phantom_reciever: PhantomData<R>,
 }
 
-impl<T: Default + Send + Sync + 'static, G: GiveData<T> + Default, R: RecieveData<T> + Default>
+impl<T: Default + Send + Sync + 'static, G: GiveData<T> + Default, R: ReceiveData<T> + Default>
     Command for SyncToDataCommand<T, G, R>
 {
     fn write(self, world: &mut World) {
@@ -167,7 +167,7 @@ pub trait SyncToDataCommandExt {
     fn sync_to_data<
         T: Default + Send + Sync + 'static,
         G: GiveData<T> + Default,
-        R: RecieveData<T> + Default,
+        R: ReceiveData<T> + Default,
     >(
         &mut self,
         source: Vec<Entity>,
@@ -178,7 +178,7 @@ impl<'w, 's, 'a> SyncToDataCommandExt for EntityCommands<'w, 's, 'a> {
     fn sync_to_data<
         T: Default + Send + Sync + 'static,
         G: GiveData<T> + Default,
-        R: RecieveData<T> + Default,
+        R: ReceiveData<T> + Default,
     >(
         &mut self,
         sources: Vec<Entity>,
@@ -201,7 +201,7 @@ impl<'w> SyncToDataCommandExt for EntityMut<'w> {
     fn sync_to_data<
         T: Default + Send + Sync + 'static,
         G: GiveData<T> + Default,
-        R: RecieveData<T> + Default,
+        R: ReceiveData<T> + Default,
     >(
         &mut self,
         sources: Vec<Entity>,
@@ -223,7 +223,7 @@ impl<'w> SyncToDataCommandExt for EntityMut<'w> {
     }
 }
 
-pub fn sync_data<T: Send + Sync + 'static, G: GiveData<T>, R: RecieveData<T>>(
+pub fn sync_data<T: Send + Sync + 'static, G: GiveData<T>, R: ReceiveData<T>>(
     asset_server: Res<AssetServer>,
     mut give_query: Query<
         (Entity, &G, &mut GiveList<T, G, R>),
@@ -258,7 +258,7 @@ pub fn sync_data<T: Send + Sync + 'static, G: GiveData<T>, R: RecieveData<T>>(
 pub fn sync_init_data<
     T: Default + Send + Sync + 'static,
     G: GiveData<T> + Default,
-    R: RecieveData<T> + Default,
+    R: ReceiveData<T> + Default,
 >(
     asset_server: Res<AssetServer>,
     mut recieve_query: Query<(&mut R, &SyncData<T, G, R>), Changed<SyncData<T, G, R>>>,
@@ -284,7 +284,7 @@ pub trait SyncBuilder {
     where
         T: Default + Send + Sync + 'static,
         G: GiveData<T> + Default,
-        R: RecieveData<T> + Default;
+        R: ReceiveData<T> + Default;
 }
 
 impl SyncBuilder for App {
@@ -292,7 +292,7 @@ impl SyncBuilder for App {
     where
         T: Default + Send + Sync + 'static,
         G: GiveData<T> + Default,
-        R: RecieveData<T> + Default,
+        R: ReceiveData<T> + Default,
     {
         self.register_type::<SyncData<T, G, R>>()
             .register_type::<GiveList<T, G, R>>()
