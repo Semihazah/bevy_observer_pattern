@@ -16,6 +16,8 @@ use bevy::{
     reflect::{FromReflect, Reflect},
 };
 
+pub mod impls;
+
 #[derive(Reflect, FromReflect, Clone, Component, Default)]
 #[reflect(Component)]
 pub struct SyncData<
