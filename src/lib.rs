@@ -154,11 +154,9 @@ impl<T: Default + Send + Sync + 'static, G: GiveData<T> + Default, R: RecieveDat
                         .insert(GiveList::<T, G, R>::new(vec![self.entity]));
                 }
                 true => {
-                    let mut g = world
-                        .entity_mut(source)
-                        .get_mut::<GiveList<T, G, R>>()
-                        .unwrap();
-                    g.recievers.push(self.entity);
+                    let mut entity_mut = world.entity_mut(source);
+                    let mut give_list = entity_mut.get_mut::<GiveList<T, G, R>>().unwrap();
+                    give_list.recievers.push(self.entity);
                 }
             }
         }
