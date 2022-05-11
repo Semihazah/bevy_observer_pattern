@@ -34,7 +34,7 @@ pub struct SyncData<
     phantom_giver: PhantomData<G>,
 
     #[reflect(ignore)]
-    phantom_reciever: PhantomData<R>,
+    phantom_receiver: PhantomData<R>,
 }
 
 impl<T: Default + Send + Sync + 'static, G: GiveData<T> + Default, R: ReceiveData<T> + Default>
@@ -45,7 +45,7 @@ impl<T: Default + Send + Sync + 'static, G: GiveData<T> + Default, R: ReceiveDat
             sources,
             phantom_data: PhantomData,
             phantom_giver: PhantomData,
-            phantom_reciever: PhantomData,
+            phantom_receiver: PhantomData,
         }
     }
 }
@@ -63,7 +63,7 @@ impl<T: Default + Send + Sync + 'static, G: GiveData<T> + Default, R: ReceiveDat
 }
 
 pub trait ReceiveData<T: Send + Sync + 'static>: Component {
-    fn recieve_data<I: Into<T>>(
+    fn receive_data<I: Into<T>>(
         &mut self,
         data: I,
         reflect_data: &dyn Reflect,
@@ -79,7 +79,7 @@ pub trait GiveData<T: Send + Sync + 'static>: Component + FromWorld + Reflect {
 #[derive(Reflect, FromReflect, Clone, Component)]
 #[reflect(Component, MapEntities)]
 pub struct GiveList<T: Send + Sync + 'static, G: GiveData<T>, R: ReceiveData<T>> {
-    pub recievers: Vec<Entity>,
+    pub receivers: Vec<Entity>,
 
     #[reflect(ignore)]
     phantom_data: PhantomData<T>,
@@ -88,26 +88,26 @@ pub struct GiveList<T: Send + Sync + 'static, G: GiveData<T>, R: ReceiveData<T>>
     phantom_giver: PhantomData<G>,
 
     #[reflect(ignore)]
-    phantom_reciever: PhantomData<R>,
+    phantom_receiver: PhantomData<R>,
 }
 
 impl<T: Send + Sync + 'static, G: GiveData<T>, R: ReceiveData<T>> GiveList<T, G, R> {
     pub fn new(list: Vec<Entity>) -> Self {
         GiveList {
-            recievers: list,
+            receivers: list,
             phantom_data: PhantomData,
             phantom_giver: PhantomData,
-            phantom_reciever: PhantomData,
+            phantom_receiver: PhantomData,
         }
     }
 }
 impl<T: Send + Sync + 'static, G: GiveData<T>, R: ReceiveData<T>> Default for GiveList<T, G, R> {
     fn default() -> Self {
         GiveList {
-            recievers: Vec::default(),
+            receivers: Vec::default(),
             phantom_data: PhantomData,
             phantom_giver: PhantomData,
-            phantom_reciever: PhantomData,
+            phantom_receiver: PhantomData,
         }
     }
 }
@@ -115,8 +115,8 @@ impl<T: Send + Sync + 'static, G: GiveData<T>, R: ReceiveData<T>> MapEntities
     for GiveList<T, G, R>
 {
     fn map_entities(&mut self, m: &EntityMap) -> Result<(), MapEntitiesError> {
-        for reciever in self.recievers.iter_mut() {
-            *reciever = m.get(*reciever).unwrap();
+        for receiver in self.receivers.iter_mut() {
+            *receiver = m.get(*receiver).unwrap();
         }
 
         Ok(())
@@ -132,7 +132,7 @@ pub struct SyncToDataCommand<
     pub sources: Vec<Entity>,
     phantom_data: PhantomData<T>,
     phantom_giver: PhantomData<G>,
-    phantom_reciever: PhantomData<R>,
+    phantom_receiver: PhantomData<R>,
 }
 
 impl<T: Default + Send + Sync + 'static, G: GiveData<T> + Default, R: ReceiveData<T> + Default>
@@ -158,7 +158,7 @@ impl<T: Default + Send + Sync + 'static, G: GiveData<T> + Default, R: ReceiveDat
                 true => {
                     let mut entity_mut = world.entity_mut(source);
                     let mut give_list = entity_mut.get_mut::<GiveList<T, G, R>>().unwrap();
-                    give_list.recievers.push(self.entity);
+                    give_list.receivers.push(self.entity);
                 }
             }
         }
@@ -192,7 +192,7 @@ impl<'w, 's, 'a> SyncToDataCommandExt for EntityCommands<'w, 's, 'a> {
             sources,
             phantom_data: PhantomData,
             phantom_giver: PhantomData,
-            phantom_reciever: PhantomData,
+            phantom_receiver: PhantomData,
         });
 
         self
@@ -216,7 +216,7 @@ impl<'w> SyncToDataCommandExt for EntityMut<'w> {
                 sources,
                 phantom_data: PhantomData,
                 phantom_giver: PhantomData,
-                phantom_reciever: PhantomData,
+                phantom_receiver: PhantomData,
             }
             .write(world)
         }
@@ -231,28 +231,28 @@ pub fn sync_data<T: Send + Sync + 'static, G: GiveData<T>, R: ReceiveData<T>>(
         (Entity, &G, &mut GiveList<T, G, R>),
         Or<(Changed<G>, Changed<GiveList<T, G, R>>)>,
     >,
-    mut recieve_query: Query<&mut R>,
+    mut receive_query: Query<&mut R>,
 ) {
     for (sender, data, mut list) in give_query.iter_mut() {
         let mut remove_list = Vec::new();
-        for recieve_entity in list.recievers.iter() {
-            //println!("Syncing changed data for types {}, {}, {}, reciever = {:?}", type_name::<T>(), type_name::<G>(), type_name::<R>(), recieve_entity);
-            if let Ok(mut reciever) = recieve_query.get_mut(*recieve_entity) {
+        for receive_entity in list.receivers.iter() {
+            //println!("Syncing changed data for types {}, {}, {}, receiver = {:?}", type_name::<T>(), type_name::<G>(), type_name::<R>(), receive_entity);
+            if let Ok(mut receiver) = receive_query.get_mut(*receive_entity) {
                 //println!("Sync data success!");
-                reciever.recieve_data(
+                receiver.receive_data(
                     data.give_data(),
                     data as &dyn Reflect,
                     &asset_server,
                     sender,
                 );
             } else {
-                //println!("Sync data failed! Could not find reciever!");
+                //println!("Sync data failed! Could not find receiver!");
 
-                remove_list.push(*recieve_entity);
+                remove_list.push(*receive_entity);
             }
         }
 
-        list.recievers
+        list.receivers
             .retain(|entity| !remove_list.contains(entity))
     }
 }
@@ -263,15 +263,15 @@ pub fn sync_init_data<
     R: ReceiveData<T> + Default,
 >(
     asset_server: Res<AssetServer>,
-    mut recieve_query: Query<(&mut R, &SyncData<T, G, R>), Changed<SyncData<T, G, R>>>,
+    mut receive_query: Query<(&mut R, &SyncData<T, G, R>), Changed<SyncData<T, G, R>>>,
     give_query: Query<&G>,
 ) {
-    for (mut reciever, sync) in recieve_query.iter_mut() {
+    for (mut receiver, sync) in receive_query.iter_mut() {
         //println!("Syncing init data for types {}, {}, {}", type_name::<T>(), type_name::<G>(), type_name::<R>());
         for source in sync.sources.iter() {
             if let Ok(giver) = give_query.get(*source) {
                 //println!("Found giver!");
-                reciever.recieve_data(
+                receiver.receive_data(
                     giver.give_data(),
                     giver as &dyn Reflect,
                     &asset_server,
