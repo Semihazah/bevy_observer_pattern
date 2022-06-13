@@ -1,4 +1,7 @@
-use std::marker::PhantomData;
+use std::{
+    marker::PhantomData,
+    ops::{Deref, DerefMut},
+};
 
 use bevy::{
     app::{App, CoreStage},
@@ -7,115 +10,75 @@ use bevy::{
         component::Component,
         entity::Entity,
         entity::{EntityMap, MapEntities, MapEntitiesError},
-        query::{Changed, Or},
+        query::{Changed, QueryEntityError},
         reflect::{ReflectComponent, ReflectMapEntities},
         schedule::ParallelSystemDescriptorCoercion,
-        system::{Command, EntityCommands, Query, Res},
-        world::{EntityMut, FromWorld, World},
+        system::{Command, EntityCommands, Query, Res, SystemState},
+        world::{EntityMut, World},
     },
+    prelude::{EventReader, EventWriter},
     reflect::{FromReflect, Reflect},
 };
 
-pub mod impls;
+// Implementation of the observer pattern between components on entities.
+// Observers will be given a reference to the subject, a reference to the asset server,
+// and the subject's entity.
+// Register every subject type with register_subject when building app.
+// Register every observer AND the subject type with register_observer when building app.
+// Call set_observer when building entity to mark as an observer to another entity.
 
-#[derive(Reflect, FromReflect, Clone, Component, Default)]
-#[reflect(Component)]
-pub struct SyncData<
-    T: Default + Send + Sync + 'static,
-    G: GiveData<T> + Default,
-    R: ReceiveData<T> + Default,
-> {
-    pub sources: Vec<Entity>,
-
-    #[reflect(ignore)]
-    phantom_data: PhantomData<T>,
-
-    #[reflect(ignore)]
-    phantom_giver: PhantomData<G>,
-
-    #[reflect(ignore)]
-    phantom_receiver: PhantomData<R>,
+/// An observer component. Mutated subjects will update this component.
+pub trait Observer<S: Component>: Component {
+    fn receive_data(&mut self, data: &S, asset_server: &Res<AssetServer>, sender: Entity);
 }
 
-impl<T: Default + Send + Sync + 'static, G: GiveData<T> + Default, R: ReceiveData<T> + Default>
-    SyncData<T, G, R>
-{
-    pub fn new(sources: Vec<Entity>) -> Self {
-        SyncData {
-            sources,
-            phantom_data: PhantomData,
-            phantom_giver: PhantomData,
-            phantom_receiver: PhantomData,
-        }
-    }
-}
-
-impl<T: Default + Send + Sync + 'static, G: GiveData<T> + Default, R: ReceiveData<T> + Default>
-    MapEntities for SyncData<T, G, R>
-{
-    fn map_entities(&mut self, m: &EntityMap) -> Result<(), MapEntitiesError> {
-        for source in self.sources.iter_mut() {
-            *source = m.get(*source).unwrap();
-        }
-
-        Ok(())
-    }
-}
-
-pub trait ReceiveData<T: Send + Sync + 'static>: Component {
-    fn receive_data<I: Into<T>>(
-        &mut self,
-        data: I,
-        reflect_data: &dyn Reflect,
-        asset_server: &Res<AssetServer>,
-        sender: Entity,
-    );
-}
-
-pub trait GiveData<T: Send + Sync + 'static>: Component + FromWorld + Reflect {
-    fn give_data(&self) -> T;
-}
-
+/// List of entities that are observing this entity.
 #[derive(Reflect, FromReflect, Clone, Component)]
 #[reflect(Component, MapEntities)]
-pub struct GiveList<T: Send + Sync + 'static, G: GiveData<T>, R: ReceiveData<T>> {
-    pub receivers: Vec<Entity>,
+pub struct ObserverList<S: Component, O: Observer<S>> {
+    observers: Vec<Entity>,
 
     #[reflect(ignore)]
-    phantom_data: PhantomData<T>,
+    phantom_giver: PhantomData<S>,
 
     #[reflect(ignore)]
-    phantom_giver: PhantomData<G>,
-
-    #[reflect(ignore)]
-    phantom_receiver: PhantomData<R>,
+    phantom_receiver: PhantomData<O>,
 }
 
-impl<T: Send + Sync + 'static, G: GiveData<T>, R: ReceiveData<T>> GiveList<T, G, R> {
+impl<S: Component, O: Observer<S>> Deref for ObserverList<S, O> {
+    type Target = Vec<Entity>;
+    fn deref(&self) -> &Self::Target {
+        &self.observers
+    }
+}
+
+impl<S: Component, O: Observer<S>> DerefMut for ObserverList<S, O> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.observers
+    }
+}
+
+impl<S: Component, O: Observer<S>> ObserverList<S, O> {
     pub fn new(list: Vec<Entity>) -> Self {
-        GiveList {
-            receivers: list,
-            phantom_data: PhantomData,
+        ObserverList {
+            observers: list,
             phantom_giver: PhantomData,
             phantom_receiver: PhantomData,
         }
     }
 }
-impl<T: Send + Sync + 'static, G: GiveData<T>, R: ReceiveData<T>> Default for GiveList<T, G, R> {
+impl<S: Component, O: Observer<S>> Default for ObserverList<S, O> {
     fn default() -> Self {
-        GiveList {
-            receivers: Vec::default(),
-            phantom_data: PhantomData,
+        ObserverList {
+            observers: Vec::default(),
             phantom_giver: PhantomData,
             phantom_receiver: PhantomData,
         }
     }
 }
-impl<T: Send + Sync + 'static, G: GiveData<T>, R: ReceiveData<T>> MapEntities
-    for GiveList<T, G, R>
-{
+impl<S: Component, O: Observer<S>> MapEntities for ObserverList<S, O> {
     fn map_entities(&mut self, m: &EntityMap) -> Result<(), MapEntitiesError> {
-        for receiver in self.receivers.iter_mut() {
+        for receiver in self.observers.iter_mut() {
             *receiver = m.get(*receiver).unwrap();
         }
 
@@ -123,100 +86,75 @@ impl<T: Send + Sync + 'static, G: GiveData<T>, R: ReceiveData<T>> MapEntities
     }
 }
 
-pub struct SyncToDataCommand<
-    T: Send + Sync + 'static,
-    G: GiveData<T> + Default,
-    R: ReceiveData<T> + Default,
-> {
-    pub entity: Entity,
-    pub sources: Vec<Entity>,
-    phantom_data: PhantomData<T>,
-    phantom_giver: PhantomData<G>,
-    phantom_receiver: PhantomData<R>,
+pub struct SyncToDataCommand<S: Component, O: Observer<S>> {
+    pub observer: Entity,
+    pub subjects: Vec<Entity>,
+    phantom_subject: PhantomData<S>,
+    phantom_observer: PhantomData<O>,
 }
 
-impl<T: Default + Send + Sync + 'static, G: GiveData<T> + Default, R: ReceiveData<T> + Default>
-    Command for SyncToDataCommand<T, G, R>
-{
+impl<S: Component, O: Observer<S>> Command for SyncToDataCommand<S, O> {
     fn write(self, world: &mut World) {
-        match world.entity_mut(self.entity).get_mut::<SyncData<T, G, R>>() {
-            Some(mut sync_list) => sync_list.sources.append(&mut self.sources.clone()),
-            None => {
-                world
-                    .entity_mut(self.entity)
-                    .insert(SyncData::<T, G, R>::new(self.sources.clone()));
-            }
-        }
-
-        for source in self.sources {
-            match world.entity(source).contains::<GiveList<T, G, R>>() {
+        for &source in self.subjects.iter() {
+            match world.entity(source).contains::<ObserverList<S, O>>() {
                 false => {
                     world
                         .entity_mut(source)
-                        .insert(GiveList::<T, G, R>::new(vec![self.entity]));
+                        .insert(ObserverList::<S, O>::new(vec![self.observer]));
                 }
                 true => {
                     let mut entity_mut = world.entity_mut(source);
-                    let mut give_list = entity_mut.get_mut::<GiveList<T, G, R>>().unwrap();
-                    give_list.receivers.push(self.entity);
+                    let mut observer_list = entity_mut.get_mut::<ObserverList<S, O>>().unwrap();
+                    observer_list.observers.push(self.observer);
+                }
+            }
+        }
+
+        let mut system_state: SystemState<(Res<AssetServer>, Query<&mut O>, Query<(Entity, &S)>)> =
+            SystemState::new(world);
+
+        let (asset_server, mut observer_query, subject_query) = system_state.get_mut(world);
+
+        if let Ok(mut observer) = observer_query.get_mut(self.observer) {
+            for &source in self.subjects.iter() {
+                if let Ok((subject, subject_comp)) = subject_query.get(source) {
+                    observer.receive_data(subject_comp, &asset_server, subject)
                 }
             }
         }
     }
 }
 
-pub trait SyncToDataCommandExt {
-    fn sync_to_data<
-        T: Default + Send + Sync + 'static,
-        G: GiveData<T> + Default,
-        R: ReceiveData<T> + Default,
-    >(
-        &mut self,
-        source: Vec<Entity>,
-    ) -> &mut Self;
+pub trait ObserverBuildCommandExt {
+    /// Sets the component O on this entity to observe component S on the source entities.
+    fn set_observer<S: Component, O: Observer<S>>(&mut self, source: Vec<Entity>) -> &mut Self;
 }
 
-impl<'w, 's, 'a> SyncToDataCommandExt for EntityCommands<'w, 's, 'a> {
-    fn sync_to_data<
-        T: Default + Send + Sync + 'static,
-        G: GiveData<T> + Default,
-        R: ReceiveData<T> + Default,
-    >(
-        &mut self,
-        sources: Vec<Entity>,
-    ) -> &mut Self {
+impl<'w, 's, 'a> ObserverBuildCommandExt for EntityCommands<'w, 's, 'a> {
+    fn set_observer<S: Component, O: Observer<S>>(&mut self, sources: Vec<Entity>) -> &mut Self {
         let id = self.id();
 
-        self.commands().add(SyncToDataCommand::<T, G, R> {
-            entity: id,
-            sources,
-            phantom_data: PhantomData,
-            phantom_giver: PhantomData,
-            phantom_receiver: PhantomData,
+        self.commands().add(SyncToDataCommand::<S, O> {
+            observer: id,
+            subjects: sources,
+            phantom_subject: PhantomData,
+            phantom_observer: PhantomData,
         });
 
         self
     }
 }
 
-impl<'w> SyncToDataCommandExt for EntityMut<'w> {
-    fn sync_to_data<
-        T: Default + Send + Sync + 'static,
-        G: GiveData<T> + Default,
-        R: ReceiveData<T> + Default,
-    >(
-        &mut self,
-        sources: Vec<Entity>,
-    ) -> &mut Self {
+impl<'w> ObserverBuildCommandExt for EntityMut<'w> {
+    fn set_observer<S: Component, O: Observer<S>>(&mut self, sources: Vec<Entity>) -> &mut Self {
         let id = self.id();
         unsafe {
             let world = self.world_mut();
-            SyncToDataCommand::<T, G, R> {
-                entity: id,
-                sources,
-                phantom_data: PhantomData,
-                phantom_giver: PhantomData,
-                phantom_receiver: PhantomData,
+            SyncToDataCommand::<S, O> {
+                observer: id,
+                subjects: sources,
+                phantom_subject: PhantomData,
+                phantom_observer: PhantomData,
             }
             .write(world)
         }
@@ -225,88 +163,156 @@ impl<'w> SyncToDataCommandExt for EntityMut<'w> {
     }
 }
 
-pub fn sync_data<T: Send + Sync + 'static, G: GiveData<T>, R: ReceiveData<T>>(
-    asset_server: Res<AssetServer>,
-    mut give_query: Query<
-        (Entity, &G, &mut GiveList<T, G, R>),
-        Or<(Changed<G>, Changed<GiveList<T, G, R>>)>,
-    >,
-    mut receive_query: Query<&mut R>,
+/// Sends events to all observer systems of this subject component when mutated.
+fn send_subject_event<S: Component>(
+    query: Query<Entity, Changed<S>>,
+    mut event_writer: EventWriter<SubjectUpdateEvent<S>>,
 ) {
-    for (sender, data, mut list) in give_query.iter_mut() {
-        let mut remove_list = Vec::new();
-        for receive_entity in list.receivers.iter() {
-            //println!("Syncing changed data for types {}, {}, {}, receiver = {:?}", type_name::<T>(), type_name::<G>(), type_name::<R>(), receive_entity);
-            if let Ok(mut receiver) = receive_query.get_mut(*receive_entity) {
-                //println!("Sync data success!");
-                receiver.receive_data(
-                    data.give_data(),
-                    data as &dyn Reflect,
-                    &asset_server,
-                    sender,
-                );
-            } else {
-                //println!("Sync data failed! Could not find receiver!");
-
-                remove_list.push(*receive_entity);
-            }
-        }
-
-        list.receivers
-            .retain(|entity| !remove_list.contains(entity))
+    for entity in query.iter() {
+        event_writer.send(SubjectUpdateEvent {
+            sender: entity,
+            phantom_data: PhantomData,
+        })
     }
 }
 
-pub fn sync_init_data<
-    T: Default + Send + Sync + 'static,
-    G: GiveData<T> + Default,
-    R: ReceiveData<T> + Default,
->(
+/// Receives subject events from subjects and updates any observer component in ObserverList.
+fn recieve_subject_event<S: Component, O: Observer<S>>(
+    mut event_reader: EventReader<SubjectUpdateEvent<S>>,
     asset_server: Res<AssetServer>,
-    mut receive_query: Query<(&mut R, &SyncData<T, G, R>), Changed<SyncData<T, G, R>>>,
-    give_query: Query<&G>,
+    mut observer_query: Query<&mut O>,
+    mut observer_list_query: Query<(Entity, &S, &mut ObserverList<S, O>)>,
 ) {
-    for (mut receiver, sync) in receive_query.iter_mut() {
-        //println!("Syncing init data for types {}, {}, {}", type_name::<T>(), type_name::<G>(), type_name::<R>());
-        for source in sync.sources.iter() {
-            if let Ok(giver) = give_query.get(*source) {
-                //println!("Found giver!");
-                receiver.receive_data(
-                    giver.give_data(),
-                    giver as &dyn Reflect,
-                    &asset_server,
-                    *source,
-                );
+    for event in event_reader.iter() {
+        if let Ok((subject, subject_comp, mut observer_list)) =
+            observer_list_query.get_mut(event.sender)
+        {
+            let mut remove_list = Vec::<Entity>::new();
+            for &observer in observer_list.observers.iter() {
+                match observer_query.get_mut(observer) {
+                    Ok(mut observer) => {
+                        observer.receive_data(subject_comp, &asset_server, subject);
+                    }
+                    Err(QueryEntityError::NoSuchEntity { .. }) => remove_list.push(observer),
+                    _ => (),
+                }
             }
+
+            observer_list.observers.retain(|x| !remove_list.contains(x));
         }
     }
 }
-pub trait SyncBuilder {
-    fn register_data_sync<T, G, R>(&mut self) -> &mut Self
-    where
-        T: Default + Send + Sync + 'static,
-        G: GiveData<T> + Default,
-        R: ReceiveData<T> + Default;
+
+pub trait ObserverRegisterExt {
+    /// Registers a type as capable to be observed.
+    fn register_subject<S: Component>(&mut self) -> &mut Self;
+
+    /// Register a type as capable of observing.
+    fn register_observer<S: Component, O: Observer<S>>(&mut self) -> &mut Self;
 }
 
-impl SyncBuilder for App {
-    fn register_data_sync<T, G, R>(&mut self) -> &mut Self
-    where
-        T: Default + Send + Sync + 'static,
-        G: GiveData<T> + Default,
-        R: ReceiveData<T> + Default,
-    {
-        self.register_type::<SyncData<T, G, R>>()
-            .register_type::<GiveList<T, G, R>>()
+impl ObserverRegisterExt for App {
+    fn register_subject<S: Component>(&mut self) -> &mut Self {
+        self.add_event::<SubjectUpdateEvent<S>>()
             .add_system_to_stage(
                 CoreStage::PostUpdate,
-                sync_data::<T, G, R>.label("sync_data"),
-            )
-            .add_system_to_stage(
-                CoreStage::PostUpdate,
-                sync_init_data::<T, G, R>.label("sync_data"),
+                send_subject_event::<S>.label("SubjectUpdate"),
             );
-
         self
+    }
+
+    fn register_observer<S: Component, O: Observer<S>>(&mut self) -> &mut Self {
+        self.register_type::<ObserverList<S, O>>()
+            .add_system_to_stage(
+                CoreStage::PostUpdate,
+                recieve_subject_event::<S, O>.after("SubjectUpdate"),
+            );
+        self
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct SubjectUpdateEvent<S: Component> {
+    sender: Entity,
+    phantom_data: PhantomData<S>,
+}
+
+#[cfg(test)]
+mod tests {
+    use bevy::{asset::create_platform_default_asset_io, prelude::*, tasks::TaskPool};
+
+    use crate::{Observer, ObserverBuildCommandExt, ObserverRegisterExt};
+
+    #[derive(Component)]
+    struct TestSubject {
+        a: String,
+        b: u32,
+    }
+
+    #[derive(Component, Default)]
+    struct TestObserver {
+        a: Option<String>,
+        b: Option<u32>,
+    }
+
+    impl Observer<TestSubject> for TestObserver {
+        fn receive_data(
+            &mut self,
+            data: &TestSubject,
+            _asset_server: &Res<AssetServer>,
+            _sender: Entity,
+        ) {
+            self.a = Some(data.a.clone());
+            self.b = Some(data.b.clone());
+        }
+    }
+
+    fn mutate_data(mut query: Query<&mut TestSubject, Added<TestSubject>>) {
+        for mut giver in query.iter_mut() {
+            giver.a = "Farewell World!".to_string();
+            giver.b = 12;
+        }
+    }
+
+    /// Quick test to see if mutations are picked up.
+    /// Subject and Observer are registered
+    /// mutate_data changes the subject to something else
+    /// Subject and Observer entities are spawned
+    /// After one frame, check and see if the values match.
+    #[test]
+    fn test_data_sync() {
+        let mut app = App::new();
+
+        let source = create_platform_default_asset_io(&mut app);
+        let asset_server = AssetServer::with_boxed_io(source, TaskPool::new());
+
+        app.insert_resource(asset_server)
+            .register_subject::<TestSubject>()
+            .register_observer::<TestSubject, TestObserver>()
+            .add_system(mutate_data);
+
+        let g = app
+            .world
+            .spawn()
+            .insert(TestSubject {
+                a: "Hello World!".to_string(),
+                b: 42,
+            })
+            .id();
+
+        let r = app
+            .world
+            .spawn()
+            .insert(TestObserver::default())
+            .set_observer::<TestSubject, TestObserver>(vec![g])
+            .id();
+
+        app.update();
+
+        assert_eq!(
+            app.world.get::<TestObserver>(r).unwrap().a,
+            Some("Farewell World!".to_string())
+        );
+        assert_eq!(app.world.get::<TestObserver>(r).unwrap().b, Some(12));
     }
 }
