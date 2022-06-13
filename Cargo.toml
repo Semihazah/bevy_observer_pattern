@@ -1,5 +1,5 @@
 [package]
-name = "bevy_type_sync"
+name = "bevy_observer_pattern"
 version = "0.1.0"
 edition = "2021"
 

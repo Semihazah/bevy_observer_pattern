@@ -360,6 +360,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "bevy_observer_pattern"
+version = "0.1.0"
+dependencies = [
+ "bevy",
+]
+
+[[package]]
 name = "bevy_pbr"
 version = "0.7.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -490,13 +497,6 @@ dependencies = [
  "bevy_hierarchy",
  "bevy_math",
  "bevy_reflect",
-]
-
-[[package]]
-name = "bevy_type_sync"
-version = "0.1.0"
-dependencies = [
- "bevy",
 ]
 
 [[package]]
