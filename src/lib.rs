@@ -20,6 +20,8 @@ use bevy::{
     reflect::{FromReflect, Reflect},
 };
 
+mod impls;
+
 // Implementation of the observer pattern between components on entities.
 // Observers will be given a reference to the subject, a reference to the asset server,
 // and the subject's entity.
@@ -93,7 +95,9 @@ impl<T: Send + Sync + 'static, S: Subject<T>, O: Observer<T>> Default for Observ
         }
     }
 }
-impl<T: Send + Sync + 'static, S: Subject<T>, O: Observer<T>> MapEntities for ObserverList<T, S, O> {
+impl<T: Send + Sync + 'static, S: Subject<T>, O: Observer<T>> MapEntities
+    for ObserverList<T, S, O>
+{
     fn map_entities(&mut self, m: &EntityMap) -> Result<(), MapEntitiesError> {
         for receiver in self.observers.iter_mut() {
             *receiver = m.get(*receiver).unwrap();
@@ -103,7 +107,7 @@ impl<T: Send + Sync + 'static, S: Subject<T>, O: Observer<T>> MapEntities for Ob
     }
 }
 
-struct ObserverBuildCommand<T: Send+ Sync + 'static, S: Subject<T>, O: Observer<T>> {
+struct ObserverBuildCommand<T: Send + Sync + 'static, S: Subject<T>, O: Observer<T>> {
     pub observer: Entity,
     pub subjects: Vec<Entity>,
     phantom_data: PhantomData<T>,
@@ -111,7 +115,9 @@ struct ObserverBuildCommand<T: Send+ Sync + 'static, S: Subject<T>, O: Observer<
     phantom_observer: PhantomData<O>,
 }
 
-impl<T: Send + Sync + 'static, S: Subject<T>, O: Observer<T>> Command for ObserverBuildCommand<T, S, O> {
+impl<T: Send + Sync + 'static, S: Subject<T>, O: Observer<T>> Command
+    for ObserverBuildCommand<T, S, O>
+{
     fn write(self, world: &mut World) {
         for &source in self.subjects.iter() {
             match world.entity(source).contains::<ObserverList<T, S, O>>() {
@@ -146,17 +152,23 @@ impl<T: Send + Sync + 'static, S: Subject<T>, O: Observer<T>> Command for Observ
 
 pub trait ObserverBuildCommandExt {
     /// Sets the component O on this entity to observe component S on the source entities.
-    fn set_observer<T: Send + Sync + 'static, S: Subject<T>, O: Observer<T>>(&mut self, source: Vec<Entity>) -> &mut Self;
+    fn set_observer<T: Send + Sync + 'static, S: Subject<T>, O: Observer<T>>(
+        &mut self,
+        source: Vec<Entity>,
+    ) -> &mut Self;
 }
 
 impl<'w, 's, 'a> ObserverBuildCommandExt for EntityCommands<'w, 's, 'a> {
-    fn set_observer<T: Send + Sync + 'static, S: Subject<T>, O: Observer<T>>(&mut self, sources: Vec<Entity>) -> &mut Self {
+    fn set_observer<T: Send + Sync + 'static, S: Subject<T>, O: Observer<T>>(
+        &mut self,
+        sources: Vec<Entity>,
+    ) -> &mut Self {
         let id = self.id();
 
         self.commands().add(ObserverBuildCommand::<T, S, O> {
             observer: id,
             subjects: sources,
-            phantom_data:PhantomData,
+            phantom_data: PhantomData,
             phantom_subject: PhantomData,
             phantom_observer: PhantomData,
         });
@@ -166,7 +178,10 @@ impl<'w, 's, 'a> ObserverBuildCommandExt for EntityCommands<'w, 's, 'a> {
 }
 
 impl<'w> ObserverBuildCommandExt for EntityMut<'w> {
-    fn set_observer<T: Send + Sync + 'static, S: Subject<T>, O: Observer<T>>(&mut self, sources: Vec<Entity>) -> &mut Self {
+    fn set_observer<T: Send + Sync + 'static, S: Subject<T>, O: Observer<T>>(
+        &mut self,
+        sources: Vec<Entity>,
+    ) -> &mut Self {
         let id = self.id();
         unsafe {
             let world = self.world_mut();
@@ -231,11 +246,13 @@ pub trait ObserverRegisterExt {
     fn register_subject<T: Send + Sync + 'static, S: Subject<T>>(&mut self) -> &mut Self;
 
     /// Register a type as capable of observing.
-    fn register_observer<T: Send + Sync + 'static, S: Subject<T>, O: Observer<T>>(&mut self) -> &mut Self;
+    fn register_observer<T: Send + Sync + 'static, S: Subject<T>, O: Observer<T>>(
+        &mut self,
+    ) -> &mut Self;
 }
 
 impl ObserverRegisterExt for App {
-    fn register_subject<T: Send+ Sync + 'static, S: Subject<T>>(&mut self) -> &mut Self {
+    fn register_subject<T: Send + Sync + 'static, S: Subject<T>>(&mut self) -> &mut Self {
         self.add_event::<SubjectUpdateEvent<T, S>>()
             .add_system_to_stage(
                 CoreStage::PostUpdate,
@@ -244,7 +261,9 @@ impl ObserverRegisterExt for App {
         self
     }
 
-    fn register_observer<T: Send + Sync + 'static, S: Subject<T>, O: Observer<T>>(&mut self) -> &mut Self {
+    fn register_observer<T: Send + Sync + 'static, S: Subject<T>, O: Observer<T>>(
+        &mut self,
+    ) -> &mut Self {
         self.register_type::<ObserverList<T, S, O>>()
             .add_system_to_stage(
                 CoreStage::PostUpdate,
@@ -286,7 +305,12 @@ mod tests {
     }
 
     impl Observer<String> for TestObserver {
-        fn receive_data(&mut self, data: &String, _asset_server: &Res<AssetServer>, _sender: Entity) {
+        fn receive_data(
+            &mut self,
+            data: &String,
+            _asset_server: &Res<AssetServer>,
+            _sender: Entity,
+        ) {
             self.a = Some(data.clone());
         }
     }

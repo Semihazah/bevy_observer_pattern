@@ -6,4 +6,8 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-bevy = { version = "0.7.0", default-features = false}
+bevy = {version = "0.7.0", default_features = true}
+
+[features]
+default = ["bevy_ui"]
+bevy_ui = ["bevy/bevy_winit"]
