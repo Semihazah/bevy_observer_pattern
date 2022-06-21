@@ -17,7 +17,8 @@ use bevy::{
         world::{EntityMut, World},
     },
     prelude::{EventReader, EventWriter},
-    reflect::{FromReflect, Reflect}, utils::HashSet,
+    reflect::{FromReflect, Reflect},
+    utils::HashSet,
 };
 
 mod impls;
