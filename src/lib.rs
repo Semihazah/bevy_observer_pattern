@@ -17,7 +17,7 @@ use bevy::{
         world::{EntityMut, World},
     },
     prelude::{EventReader, EventWriter},
-    reflect::{FromReflect, Reflect},
+    reflect::{FromReflect, Reflect}, utils::HashSet,
 };
 
 mod impls;
@@ -50,7 +50,7 @@ impl<T: Component> Subject<T> for T {
 #[derive(Reflect, FromReflect, Clone, Component)]
 #[reflect(Component, MapEntities)]
 pub struct ObserverList<T: Send + Sync + 'static, S: Subject<T>, O: Observer<T>> {
-    observers: Vec<Entity>,
+    observers: HashSet<Entity>,
 
     #[reflect(ignore)]
     phantom_data: PhantomData<T>,
@@ -63,7 +63,7 @@ pub struct ObserverList<T: Send + Sync + 'static, S: Subject<T>, O: Observer<T>>
 }
 
 impl<T: Send + Sync + 'static, S: Subject<T>, O: Observer<T>> Deref for ObserverList<T, S, O> {
-    type Target = Vec<Entity>;
+    type Target = HashSet<Entity>;
     fn deref(&self) -> &Self::Target {
         &self.observers
     }
@@ -76,9 +76,9 @@ impl<T: Send + Sync + 'static, S: Subject<T>, O: Observer<T>> DerefMut for Obser
 }
 
 impl<T: Send + Sync + 'static, S: Subject<T>, O: Observer<T>> ObserverList<T, S, O> {
-    pub fn new(list: Vec<Entity>) -> Self {
+    pub fn new(list: impl IntoIterator<Item = Entity>) -> Self {
         ObserverList {
-            observers: list,
+            observers: list.into_iter().collect(),
             phantom_data: PhantomData,
             phantom_subject: PhantomData,
             phantom_observer: PhantomData,
@@ -87,22 +87,18 @@ impl<T: Send + Sync + 'static, S: Subject<T>, O: Observer<T>> ObserverList<T, S,
 }
 impl<T: Send + Sync + 'static, S: Subject<T>, O: Observer<T>> Default for ObserverList<T, S, O> {
     fn default() -> Self {
-        ObserverList {
-            observers: Vec::default(),
-            phantom_data: PhantomData,
-            phantom_subject: PhantomData,
-            phantom_observer: PhantomData,
-        }
+        ObserverList::new(vec![])
     }
 }
 impl<T: Send + Sync + 'static, S: Subject<T>, O: Observer<T>> MapEntities
     for ObserverList<T, S, O>
 {
     fn map_entities(&mut self, m: &EntityMap) -> Result<(), MapEntitiesError> {
-        for receiver in self.observers.iter_mut() {
-            *receiver = m.get(*receiver).unwrap();
+        let mut new_set = HashSet::default();
+        for receiver in self.observers.iter() {
+            new_set.insert(m.get(*receiver).unwrap());
         }
-
+        self.observers = new_set;
         Ok(())
     }
 }
@@ -129,7 +125,7 @@ impl<T: Send + Sync + 'static, S: Subject<T>, O: Observer<T>> Command
                 true => {
                     let mut entity_mut = world.entity_mut(source);
                     let mut observer_list = entity_mut.get_mut::<ObserverList<T, S, O>>().unwrap();
-                    observer_list.observers.push(self.observer);
+                    observer_list.observers.insert(self.observer);
                 }
             }
         }
@@ -340,6 +336,43 @@ mod tests {
     /// Subject and Observer entities are spawned
     /// After one frame, check and see if the values match.
     #[test]
+    fn test_data_sync() {
+        let mut app = App::new();
+
+        let source = create_platform_default_asset_io(&mut app);
+        let asset_server = AssetServer::with_boxed_io(source, TaskPool::new());
+
+        app.insert_resource(asset_server)
+            .register_subject::<String, TestSubject>()
+            .register_observer::<String, TestSubject, TestObserver>()
+            .add_system(mutate_data);
+
+        let g = app
+            .world
+            .spawn()
+            .insert(TestSubject {
+                a: "Hello World!".to_string(),
+                b: 42,
+            })
+            .id();
+
+        let r = app
+            .world
+            .spawn()
+            .insert(TestObserver::default())
+            .set_observer::<String, TestSubject, TestObserver>(vec![g])
+            .id();
+
+        app.update();
+
+        assert_eq!(
+            app.world.get::<TestObserver>(r).unwrap().a,
+            Some("Farewell World!".to_string())
+        );
+    }
+
+    /// Same as above, but testing giving the entire component
+    #[test]
     fn test_self_data_sync() {
         let mut app = App::new();
 
@@ -374,41 +407,5 @@ mod tests {
             Some("Farewell World!".to_string())
         );
         assert_eq!(app.world.get::<TestObserver>(r).unwrap().b, Some(12));
-    }
-
-    #[test]
-    fn test_data_sync() {
-        let mut app = App::new();
-
-        let source = create_platform_default_asset_io(&mut app);
-        let asset_server = AssetServer::with_boxed_io(source, TaskPool::new());
-
-        app.insert_resource(asset_server)
-            .register_subject::<String, TestSubject>()
-            .register_observer::<String, TestSubject, TestObserver>()
-            .add_system(mutate_data);
-
-        let g = app
-            .world
-            .spawn()
-            .insert(TestSubject {
-                a: "Hello World!".to_string(),
-                b: 42,
-            })
-            .id();
-
-        let r = app
-            .world
-            .spawn()
-            .insert(TestObserver::default())
-            .set_observer::<String, TestSubject, TestObserver>(vec![g])
-            .id();
-
-        app.update();
-
-        assert_eq!(
-            app.world.get::<TestObserver>(r).unwrap().a,
-            Some("Farewell World!".to_string())
-        );
     }
 }
