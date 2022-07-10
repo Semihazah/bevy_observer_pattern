@@ -16,7 +16,6 @@ use bevy::{
         system::{Command, EntityCommands, Query, Res, SystemState},
         world::{EntityMut, World},
     },
-    prelude::{EventReader, EventWriter},
     reflect::{FromReflect, Reflect},
     utils::HashSet,
 };
@@ -196,52 +195,30 @@ impl<'w> ObserverBuildCommandExt for EntityMut<'w> {
     }
 }
 
-/// Sends events to all observer systems of this subject component when mutated.
-fn send_subject_event<T: Send + Sync + 'static, S: Subject<T>>(
-    query: Query<Entity, Changed<S>>,
-    mut event_writer: EventWriter<SubjectUpdateEvent<T, S>>,
-) {
-    for entity in query.iter() {
-        event_writer.send(SubjectUpdateEvent {
-            sender: entity,
-            phantom_data: PhantomData,
-            phantom_subject: PhantomData,
-        })
-    }
-}
-
 /// Receives subject events from subjects and updates any observer component in ObserverList.
 fn recieve_subject_event<T: Send + Sync + 'static, S: Subject<T>, O: Observer<T>>(
-    mut event_reader: EventReader<SubjectUpdateEvent<T, S>>,
     asset_server: Res<AssetServer>,
     mut observer_query: Query<&mut O>,
-    mut observer_list_query: Query<(Entity, &S, &mut ObserverList<T, S, O>)>,
+    mut observer_list_query: Query<(Entity, &S, &mut ObserverList<T, S, O>), Changed<S>>,
 ) {
-    for event in event_reader.iter() {
-        if let Ok((subject, subject_comp, mut observer_list)) =
-            observer_list_query.get_mut(event.sender)
-        {
-            let data = Subject::<T>::give_data(subject_comp);
-            let mut remove_list = Vec::<Entity>::new();
-            for &observer in observer_list.observers.iter() {
-                match observer_query.get_mut(observer) {
-                    Ok(mut observer) => {
-                        observer.receive_data(data, &asset_server, subject);
-                    }
-                    Err(QueryEntityError::NoSuchEntity { .. }) => remove_list.push(observer),
-                    _ => (),
+    for (subject, subject_comp, mut observer_list) in observer_list_query.iter_mut() {
+        let data = Subject::<T>::give_data(subject_comp);
+        let mut remove_list = Vec::<Entity>::new();
+        for &observer in observer_list.observers.iter() {
+            match observer_query.get_mut(observer) {
+                Ok(mut observer) => {
+                    observer.receive_data(data, &asset_server, subject);
                 }
+                Err(QueryEntityError::NoSuchEntity { .. }) => remove_list.push(observer),
+                _ => (),
             }
-
-            observer_list.observers.retain(|x| !remove_list.contains(x));
         }
+
+        observer_list.observers.retain(|x| !remove_list.contains(x));
     }
 }
 
 pub trait ObserverRegisterExt {
-    /// Registers a type as capable to be observed.
-    fn register_subject<T: Send + Sync + 'static, S: Subject<T>>(&mut self) -> &mut Self;
-
     /// Register a type as capable of observing.
     fn register_observer<T: Send + Sync + 'static, S: Subject<T>, O: Observer<T>>(
         &mut self,
@@ -249,15 +226,6 @@ pub trait ObserverRegisterExt {
 }
 
 impl ObserverRegisterExt for App {
-    fn register_subject<T: Send + Sync + 'static, S: Subject<T>>(&mut self) -> &mut Self {
-        self.add_event::<SubjectUpdateEvent<T, S>>()
-            .add_system_to_stage(
-                CoreStage::PostUpdate,
-                send_subject_event::<T, S>.label("SubjectUpdate"),
-            );
-        self
-    }
-
     fn register_observer<T: Send + Sync + 'static, S: Subject<T>, O: Observer<T>>(
         &mut self,
     ) -> &mut Self {
@@ -268,13 +236,6 @@ impl ObserverRegisterExt for App {
             );
         self
     }
-}
-
-#[derive(Debug, Clone)]
-pub struct SubjectUpdateEvent<T: Send + Sync + 'static, S: Subject<T>> {
-    sender: Entity,
-    phantom_data: PhantomData<T>,
-    phantom_subject: PhantomData<S>,
 }
 
 #[cfg(test)]
@@ -344,7 +305,6 @@ mod tests {
         let asset_server = AssetServer::with_boxed_io(source, TaskPool::new());
 
         app.insert_resource(asset_server)
-            .register_subject::<String, TestSubject>()
             .register_observer::<String, TestSubject, TestObserver>()
             .add_system(mutate_data);
 
@@ -381,7 +341,6 @@ mod tests {
         let asset_server = AssetServer::with_boxed_io(source, TaskPool::new());
 
         app.insert_resource(asset_server)
-            .register_subject::<TestSubject, TestSubject>()
             .register_observer::<TestSubject, TestSubject, TestObserver>()
             .add_system(mutate_data);
 
