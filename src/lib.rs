@@ -12,7 +12,6 @@ use bevy::{
         entity::{EntityMap, MapEntities, MapEntitiesError},
         query::{Changed, QueryEntityError},
         reflect::{ReflectComponent, ReflectMapEntities},
-        schedule::ParallelSystemDescriptorCoercion,
         system::{Command, EntityCommands, Query, Res, SystemState},
         world::{EntityMut, World},
     },
@@ -232,7 +231,7 @@ impl ObserverRegisterExt for App {
         self.register_type::<ObserverList<T, S, O>>()
             .add_system_to_stage(
                 CoreStage::PostUpdate,
-                recieve_subject_event::<T, S, O>.after("SubjectUpdate"),
+                recieve_subject_event::<T, S, O>,
             );
         self
     }
