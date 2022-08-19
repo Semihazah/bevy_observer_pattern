@@ -239,7 +239,7 @@ impl ObserverRegisterExt for App {
 
 #[cfg(test)]
 mod tests {
-    use bevy::{asset::create_platform_default_asset_io, prelude::*, tasks::TaskPool};
+    use bevy::{asset::create_platform_default_asset_io, prelude::*};
 
     use crate::{Observer, ObserverBuildCommandExt, ObserverRegisterExt, Subject};
 
@@ -301,7 +301,7 @@ mod tests {
         let mut app = App::new();
 
         let source = create_platform_default_asset_io(&mut app);
-        let asset_server = AssetServer::with_boxed_io(source, TaskPool::new());
+        let asset_server = AssetServer::with_boxed_io(source);
 
         app.insert_resource(asset_server)
             .register_observer::<String, TestSubject, TestObserver>()
@@ -337,7 +337,7 @@ mod tests {
         let mut app = App::new();
 
         let source = create_platform_default_asset_io(&mut app);
-        let asset_server = AssetServer::with_boxed_io(source, TaskPool::new());
+        let asset_server = AssetServer::with_boxed_io(source);
 
         app.insert_resource(asset_server)
             .register_observer::<TestSubject, TestSubject, TestObserver>()

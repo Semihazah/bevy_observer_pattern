@@ -1,9 +1,6 @@
 #[cfg(feature = "bevy_ui")]
 mod ui {
-    use bevy::{
-        prelude::{Handle, Image},
-        ui::UiImage,
-    };
+    use bevy::{prelude::{Handle, Image}, ui::UiImage};
 
     use crate::Observer;
 
