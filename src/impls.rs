@@ -1,10 +1,8 @@
 #[cfg(feature = "bevy_ui")]
 mod ui {
-    use bevy::{prelude::{Handle, Image}, ui::UiImage};
-
     use crate::Observer;
 
-    impl Observer<String> for UiImage {
+    impl Observer<String> for bevy::ui::UiImage {
         fn receive_data(
             &mut self,
             data: &String,
@@ -15,13 +13,19 @@ mod ui {
         }
     }
 
-    impl Observer<Handle<Image>> for bevy::ui::UiImage {
+    impl Observer<bevy::prelude::Handle<bevy::prelude::Image>> for bevy::ui::UiImage {
         fn receive_data(
             &mut self,
-            data: &Handle<Image>,
+            data: &bevy::prelude::Handle<bevy::prelude::Image>,
             _asset_server: &bevy::prelude::Res<bevy::prelude::AssetServer>,
             _sender: bevy::prelude::Entity,
         ) {
+            self.0 = data.clone();
+        }
+    }
+
+    impl Observer<bevy::prelude::Color> for bevy::ui::UiColor {
+        fn receive_data(&mut self, data: &bevy::prelude::Color, _asset_server: &bevy::prelude::Res<bevy::prelude::AssetServer>, _sender: bevy::prelude::Entity) {
             self.0 = data.clone();
         }
     }

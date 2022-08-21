@@ -11,3 +11,6 @@ bevy = {version = "0.8.0", default_features = false, features = ["bevy_asset"]}
 [features]
 default = ["bevy_ui"]
 bevy_ui = ["bevy/bevy_winit"]
+
+[dev-dependencies]
+bevy = "0.8.0"
