@@ -4,18 +4,14 @@ use std::{
 };
 
 use bevy::{
-    app::{App, CoreStage},
-    asset::AssetServer,
     ecs::{
-        component::Component,
-        entity::Entity,
         entity::{EntityMap, MapEntities, MapEntitiesError},
-        query::{Changed, QueryEntityError},
-        reflect::{ReflectComponent, ReflectMapEntities},
-        system::{Command, EntityCommands, Query, Res, SystemState},
-        world::{EntityMut, World},
+        query::QueryEntityError,
+        reflect::ReflectMapEntities,
+        system::{Command, EntityCommands, SystemState},
+        world::EntityMut,
     },
-    reflect::{FromReflect, Reflect},
+    prelude::*,
     utils::HashSet,
 };
 
@@ -228,18 +224,16 @@ impl ObserverRegisterExt for App {
     fn register_observer<T: Send + Sync + 'static, S: Subject<T>, O: Observer<T>>(
         &mut self,
     ) -> &mut Self {
-        self.register_type::<ObserverList<T, S, O>>()
-            .add_system_to_stage(
-                CoreStage::PostUpdate,
-                recieve_subject_event::<T, S, O>,
-            );
+        self.register_type::<ObserverList<T, S, O>>().add_system(
+            recieve_subject_event::<T, S, O>.in_base_set(bevy::prelude::CoreSet::PostUpdate),
+        );
         self
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use bevy::{asset::create_platform_default_asset_io, prelude::*};
+    use bevy::prelude::*;
 
     use crate::{Observer, ObserverBuildCommandExt, ObserverRegisterExt, Subject};
 
@@ -299,18 +293,13 @@ mod tests {
     #[test]
     fn test_data_sync() {
         let mut app = App::new();
-
-        let source = create_platform_default_asset_io(&mut app);
-        let asset_server = AssetServer::with_boxed_io(source);
-
-        app.insert_resource(asset_server)
+        app.add_plugin(AssetPlugin::default())
             .register_observer::<String, TestSubject, TestObserver>()
             .add_system(mutate_data);
 
         let g = app
             .world
-            .spawn()
-            .insert(TestSubject {
+            .spawn(TestSubject {
                 a: "Hello World!".to_string(),
                 b: 42,
             })
@@ -318,8 +307,7 @@ mod tests {
 
         let r = app
             .world
-            .spawn()
-            .insert(TestObserver::default())
+            .spawn(TestObserver::default())
             .set_observer::<String, TestSubject, TestObserver>(vec![g])
             .id();
 
@@ -335,18 +323,13 @@ mod tests {
     #[test]
     fn test_self_data_sync() {
         let mut app = App::new();
-
-        let source = create_platform_default_asset_io(&mut app);
-        let asset_server = AssetServer::with_boxed_io(source);
-
-        app.insert_resource(asset_server)
+        app.add_plugin(AssetPlugin::default())
             .register_observer::<TestSubject, TestSubject, TestObserver>()
             .add_system(mutate_data);
 
         let g = app
             .world
-            .spawn()
-            .insert(TestSubject {
+            .spawn(TestSubject {
                 a: "Hello World!".to_string(),
                 b: 42,
             })
@@ -354,8 +337,7 @@ mod tests {
 
         let r = app
             .world
-            .spawn()
-            .insert(TestObserver::default())
+            .spawn(TestObserver::default())
             .set_observer::<TestSubject, TestSubject, TestObserver>(vec![g])
             .id();
 

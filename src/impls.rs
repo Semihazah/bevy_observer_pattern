@@ -9,7 +9,7 @@ mod ui {
             asset_server: &bevy::prelude::Res<bevy::prelude::AssetServer>,
             _sender: bevy::prelude::Entity,
         ) {
-            self.0 = asset_server.load(data);
+            self.texture = asset_server.load(data);
         }
     }
 
@@ -20,13 +20,18 @@ mod ui {
             _asset_server: &bevy::prelude::Res<bevy::prelude::AssetServer>,
             _sender: bevy::prelude::Entity,
         ) {
-            self.0 = data.clone();
+            self.texture = data.clone();
         }
     }
 
-    impl Observer<bevy::prelude::Color> for bevy::ui::UiColor {
-        fn receive_data(&mut self, data: &bevy::prelude::Color, _asset_server: &bevy::prelude::Res<bevy::prelude::AssetServer>, _sender: bevy::prelude::Entity) {
-            self.0 = data.clone();
+    impl Observer<bevy::prelude::Color> for bevy::ui::BackgroundColor {
+        fn receive_data(
+            &mut self,
+            data: &bevy::prelude::Color,
+            _asset_server: &bevy::prelude::Res<bevy::prelude::AssetServer>,
+            _sender: bevy::prelude::Entity,
+        ) {
+            self.0 = *data;
         }
     }
 }
